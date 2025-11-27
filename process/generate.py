@@ -1,19 +1,12 @@
-# process/generate.py
+# process/generate.py (REFACTORED)
 
 import json
 import os
 import re
 import logging
-import ast
 from typing import Dict
 from api.callAPI import VertexClient
-from dotenv import load_dotenv
 
-# Load environment variables
-load_dotenv()
-
-# Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 class ExperimentGenerator:
@@ -21,212 +14,234 @@ class ExperimentGenerator:
         self.client = vertex_client
         self.output_dir = output_dir
         os.makedirs(output_dir, exist_ok=True)
-        self.global_constraints = "" 
+        
+        # Load examples một lần duy nhất
+        self.html_example = self._load_example("resources/examples/example.html")
+        self.js_example = self._load_example("resources/examples/example.js")
 
-    def _read_file(self, file_path: str) -> str:
+    def _load_example(self, path: str) -> str:
+        """Load file ví dụ"""
         try:
-            with open(file_path, 'r', encoding='utf-8') as f:
+            with open(path, 'r', encoding='utf-8') as f:
                 return f.read()
-        except FileNotFoundError:
-            logger.warning(f"⚠️ File not found: {file_path}")
+        except:
+            logger.warning(f"Không tìm thấy example: {path}")
             return ""
 
-    def _load_constraints(self, prompt_path: str):
-        content = self._read_file(prompt_path)
-        if not content:
-            self.global_constraints = "Yêu cầu: HTML5, Tailwind CSS, JS ES6+, Comment tiếng Việt."
-            return
-        lines = [line for line in content.split('\n') if '$' not in line]
-        self.global_constraints = "\n".join(lines)
-        logger.info(f"📝 Đã load Constraints từ: {os.path.basename(prompt_path)}")
-
-    def _clean_json_string(self, json_str: str) -> str:
-        json_str = re.sub(r"//.*", "", json_str)
-        json_str = re.sub(r"/\*.*?\*/", "", json_str, flags=re.DOTALL)
-        json_str = re.sub(r",\s*([\]}])", r"\1", json_str)
-        return json_str.strip()
-
-    def _balance_json(self, json_str: str) -> str:
-        json_str = json_str.strip()
-        if json_str.count('"') % 2 != 0: json_str += '"'
-        json_str = json_str.rstrip(',')
-        if json_str.endswith(':'): json_str += ' null'
-        elif re.search(r'"[^"]+"$', json_str):
-            last_colon = json_str.rfind(':')
-            last_comma_or_brace = max(json_str.rfind(','), json_str.rfind('{'), json_str.rfind('['))
-            if last_comma_or_brace > last_colon: json_str += ': null'
-        
-        open_braces = json_str.count('{'); close_braces = json_str.count('}')
-        open_brackets = json_str.count('['); close_brackets = json_str.count(']')
-        json_str += ']' * (open_brackets - close_brackets)
-        json_str += '}' * (open_braces - close_braces)
-        return json_str
-
-    def _extract_json(self, text: str) -> dict:
-        match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', text, re.DOTALL)
-        if match: json_str = match.group(1)
-        else:
-            start_idx = text.find('{')
-            if start_idx != -1:
-                end_idx = text.rfind('```')
-                json_str = text[start_idx:end_idx] if end_idx > start_idx else text[start_idx:]
-            else: return {}
-
-        clean_str = self._clean_json_string(json_str)
-        try: return json.loads(clean_str)
-        except: pass
-        
-        repaired_str = self._balance_json(clean_str)
-        try: return json.loads(repaired_str)
-        except: pass
-        
-        try:
-            py_str = repaired_str.replace("null", "None").replace("true", "True").replace("false", "False")
-            return ast.literal_eval(py_str)
-        except Exception: return {}
-
-    def _strip_outer_html(self, html_code: str) -> str:
-        """Loại bỏ thẻ html, head, body bao ngoài nếu AI lỡ sinh ra"""
-        # Tìm nội dung trong <body>...</body>
-        body_match = re.search(r'<body[^>]*>(.*?)</body>', html_code, re.DOTALL | re.IGNORECASE)
-        if body_match:
-            return body_match.group(1).strip()
-        
-        # Nếu không có body nhưng có <html>, lấy nội dung trong html
-        html_match = re.search(r'<html[^>]*>(.*?)</html>', html_code, re.DOTALL | re.IGNORECASE)
-        if html_match:
-            # Nếu trong html không có body, trả về nguyên cục đó (trừ thẻ html)
-            return html_match.group(1).strip()
-            
-        return html_code
-
-    def _extract_code(self, text: str, lang: str) -> str:
-        pattern = rf"```{lang}?\n(.*?)\n```"
+    def _clean_code_block(self, text: str, lang: str) -> str:
+        """Loại bỏ markdown code block và thẻ HTML bọc ngoài"""
+        # Loại bỏ ```language
+        pattern = rf"```{lang}?\s*\n?(.*?)\n?```"
         match = re.search(pattern, text, re.DOTALL)
         code = match.group(1).strip() if match else text.strip()
         
-        # Xử lý đặc biệt cho HTML: Lột bỏ vỏ bọc nếu có
+        # Loại bỏ thẻ html/head/body nếu có
         if lang == "html":
-            code = self._strip_outer_html(code)
-            
+            for tag in ['<html', '<head', '<body']:
+                if tag in code.lower():
+                    # Lấy nội dung trong <body>
+                    body_match = re.search(r'<body[^>]*>(.*?)</body>', code, re.DOTALL | re.IGNORECASE)
+                    if body_match:
+                        return body_match.group(1).strip()
+        
         return code
 
-    # --- WORKFLOW ---
-
-    def generate_blueprint(self, exp_data: Dict) -> Dict:
-        prompt = f"""
-        Bạn là Kiến trúc sư phần mềm.
-        Nhiệm vụ: Tạo JSON Blueprint cho thí nghiệm: {exp_data.get('Bài học')}.
-        Mô tả: {exp_data.get('Mô tả thí nghiệm thực hiện')}
-
-        QUAN TRỌNG:
-        1. Tiết kiệm Token tối đa.
-        2. KHÔNG bao gồm 'description', 'version'.
-        3. KHÔNG comment trong JSON.
-
-        OUTPUT FORMAT (JSON Only):
-        {{
-            "dom_ids": {{ "canvas": "main-canvas", "startBtn": "btn-start" }},
-            "state_vars": [ {{ "name": "isRunning", "default": false }} ],
-            "functions": ["init", "update", "render"]
-        }}
+    def generate_complete_experiment(self, exp_data: Dict, template_path: str, prompt_path: str):
         """
-        resp = self.client.send_data_to_AI(prompt, max_output_tokens=4096)
-        return self._extract_json(resp)
+        Sinh HTML hoàn chỉnh TRONG 1 LẦN GỌI DUY NHẤT
+        Không tách thành nhiều bước nữa → giảm token waste
+        """
+        lesson = exp_data.get('Bài học', 'Unknown')
+        logger.info(f"🚀 Sinh HTML cho: {lesson}")
+        
+        # Đọc template
+        with open(template_path, 'r', encoding='utf-8') as f:
+            template = f.read()
+        
+        # Tạo prompt SIÊU TỐI ƯU
+        prompt = self._build_optimized_prompt(exp_data)
+        
+        # Gọi AI 1 lần duy nhất với max_tokens cao
+        response = self.client.send_data_to_AI(
+            prompt, 
+            max_output_tokens=40000,  # Đủ lớn cho toàn bộ HTML+CSS+JS
+            temperature=0.1  # Giảm temperature để code ổn định hơn
+        )
+        
+        if not response:
+            logger.error("❌ AI không trả về response")
+            return None
+        
+        # Parse response
+        html_content, css_content, js_content = self._parse_complete_response(response)
+        
+        # Validate trước khi lưu
+        from process.validate import CodeValidator
+        
+        is_valid_html, msg = CodeValidator.validate_html(html_content)
+        if not is_valid_html:
+            logger.error(f"❌ HTML không hợp lệ: {msg}")
+            return None
+        
+        is_valid_js, msg = CodeValidator.validate_js(js_content)
+        if not is_valid_js:
+            logger.error(f"❌ JS không hợp lệ: {msg}")
+            # Thử fix tự động
+            js_content = self._auto_fix_js(js_content)
+        
+        # Inject vào template
+        output = template \
+            .replace("{{CHAPTER_TITLE}}", str(exp_data.get("Chương", ""))) \
+            .replace("{{LESSON_TITLE}}", str(lesson)) \
+            .replace("{{CONTENT_SUMMARY}}", str(exp_data.get("Nội dung trong bài học", ""))[:200]) \
+            .replace("{{HTML_CONTENT}}", html_content) \
+            .replace("{{CSS_CONTENT}}", css_content) \
+            .replace("{{JS_CONTENT}}", js_content)
+        
+        # Lưu file
+        safe_name = re.sub(r'[^\w\-]', '_', lesson)
+        filename = os.path.join(self.output_dir, f"{safe_name}.html")
+        
+        with open(filename, 'w', encoding='utf-8') as f:
+            f.write(output)
+        
+        logger.info(f"✅ Đã tạo: {filename}")
+        return filename
 
-    def generate_html_css(self, exp_data: Dict, blueprint: Dict) -> tuple[str, str]:
-        bp_str = json.dumps(blueprint, indent=2, ensure_ascii=False)
-        html_prompt = f"""
-        {self.global_constraints}
-        BLUEPRINT: {bp_str}
-        MÔ TẢ: {exp_data.get('Mô tả thí nghiệm thực hiện')}
-        
-        Nhiệm vụ: Viết HTML cho #simulation-area.
-        YÊU CẦU QUAN TRỌNG:
-        - CHỈ TRẢ VỀ CÁC THẺ DIV/BUTTON... BÊN TRONG, KHÔNG VIẾT THẺ <html>, <head>, <body>.
-        - Dùng Tailwind CSS.
+    def _build_optimized_prompt(self, exp_data: Dict) -> str:
         """
-        html_resp = self.client.send_data_to_AI(html_prompt, max_output_tokens=4096)
-        
-        css_prompt = f"""
-        {self.global_constraints}
-        BLUEPRINT: {bp_str}
-        Nhiệm vụ: Viết CSS tùy chỉnh (ngắn gọn).
+        Tạo prompt SIÊU TỐI ƯU - Ngắn gọn, rõ ràng, có ví dụ
         """
-        css_resp = self.client.send_data_to_AI(css_prompt, max_output_tokens=2048)
+        mo_ta = exp_data.get('Mô tả thí nghiệm thực hiện', '')
         
-        return self._extract_code(html_resp, "html"), self._extract_code(css_resp, "css")
+        # Trích xuất các bước từ mô tả
+        steps = re.findall(r'- Bước \d+:.*?(?=- Bước \d+:|$)', mo_ta, re.DOTALL)
+        steps_summary = "\n".join([s.strip()[:200] for s in steps[:6]])  # Chỉ lấy 6 bước đầu
+        
+        prompt = f"""Bạn là chuyên gia tạo thí nghiệm HTML tương tác.
 
-    def generate_js_logic(self, exp_data: Dict, blueprint: Dict) -> str:
-        bp_str = json.dumps(blueprint, indent=2, ensure_ascii=False)
-        prompt = f"""
-        {self.global_constraints}
-        BLUEPRINT: {bp_str}
-        MÔ TẢ: {exp_data.get('Mô tả thí nghiệm thực hiện')}
-        
-        Nhiệm vụ: Viết CORE LOGIC JS.
-        Yêu cầu:
-        - Viết code GỌN GÀNG, TỐI ƯU HÓA TOKEN (bỏ comment thừa).
-        - Khai báo State và hàm updatePhysics.
-        """
-        resp = self.client.send_data_to_AI(prompt, max_output_tokens=8192)
-        return self._extract_code(resp, "javascript")
+**THÔNG TIN:**
+• Bài: {exp_data.get('Bài học')}
+• Chương: {exp_data.get('Chương')}
 
-    def generate_js_ui(self, exp_data: Dict, blueprint: Dict, js_logic: str) -> str:
-        bp_str = json.dumps(blueprint, indent=2, ensure_ascii=False)
-        prompt = f"""
-        {self.global_constraints}
-        LOGIC ĐÃ CÓ:
-        {js_logic}
-        BLUEPRINT: {bp_str}
+**CÁC BƯỚC THÍ NGHIỆM:**
+{steps_summary}
+
+**YÊU CẦU QUAN TRỌNG:**
+1. TRẢ VỀ JSON DUY NHẤT theo format:
+```json
+{{
+  "html": "<div>...</div>",
+  "css": "body {{ margin: 0; }}",
+  "js": "const state = {{}}; function init() {{ ... }}"
+}}
+```
+
+2. HTML:
+   - KHÔNG ĐƯỢC CÓ <html>, <head>, <body>
+   - CHỈ CÓ các thẻ <div>, <button>, <canvas>, <svg>...
+   - Dùng Tailwind classes (bg-blue-500, p-4, rounded-lg...)
+   - Mỗi phần tử PHẢI có id hoặc class rõ ràng
+
+3. CSS:
+   - CHỈ viết CSS tùy chỉnh (animations, transitions)
+   - Không duplicate Tailwind classes
+
+4. JS:
+   - Viết GỌN, LOGIC RÕ RÀNG
+   - Khai báo: const state = {{...}}
+   - Hàm init() ở cuối, tự động gọi
+   - Dùng requestAnimationFrame cho animation
+   - KHÔNG DÙNG localStorage/sessionStorage
+
+**VÍ DỤ THAM KHẢO:**
+```json
+{{
+  "html": "<div id='canvas-container' class='relative w-full h-96 bg-gray-900'><canvas id='myCanvas' width='800' height='400'></canvas></div><div class='mt-4 flex gap-2'><button id='btnStart' class='px-4 py-2 bg-green-500 text-white rounded'>Start</button></div>",
+  
+  "css": "@keyframes glow {{ 0% {{ box-shadow: 0 0 5px blue; }} 100% {{ box-shadow: 0 0 20px blue; }} }}",
+  
+  "js": "const canvas = document.getElementById('myCanvas'); const ctx = canvas.getContext('2d'); const state = {{ running: false }}; function drawCircle() {{ ctx.clearRect(0,0,800,400); ctx.fillStyle='red'; ctx.arc(100,100,50,0,Math.PI*2); ctx.fill(); }} function init() {{ document.getElementById('btnStart').onclick = () => {{ state.running = true; drawCircle(); }}; }} init();"
+}}
+```
+
+BẮT ĐẦU TẠO JSON CHO THÍ NGHIỆM TRÊN:"""
+
+        return prompt
+
+    def _parse_complete_response(self, response: str) -> tuple[str, str, str]:
+        """Parse JSON response từ AI"""
+        try:
+            # Tìm JSON block
+            match = re.search(r'```json\s*(\{.*?\})\s*```', response, re.DOTALL)
+            if match:
+                json_str = match.group(1)
+            else:
+                # Tìm { } đầu tiên
+                start = response.find('{')
+                end = response.rfind('}')
+                if start != -1 and end != -1:
+                    json_str = response[start:end+1]
+                else:
+                    raise ValueError("Không tìm thấy JSON")
+            
+            data = json.loads(json_str)
+            
+            html = data.get('html', '')
+            css = data.get('css', '')
+            js = data.get('js', '')
+            
+            # Clean code blocks
+            html = self._clean_code_block(html, 'html')
+            css = self._clean_code_block(css, 'css')
+            js = self._clean_code_block(js, 'javascript')
+            
+            return html, css, js
+            
+        except Exception as e:
+            logger.error(f"❌ Parse error: {e}")
+            # Fallback: thử tách theo markers
+            return self._fallback_parse(response)
+
+    def _fallback_parse(self, response: str) -> tuple[str, str, str]:
+        """Phương án dự phòng nếu JSON parse thất bại"""
+        html = self._extract_between(response, '"html":', '"css":')
+        css = self._extract_between(response, '"css":', '"js":')
+        js = self._extract_between(response, '"js":', '}')
         
-        Nhiệm vụ: Viết UI & EVENTS JS.
-        Yêu cầu:
-        - QUAN TRỌNG: CODE PHẢI NGẮN GỌN ĐỂ KHÔNG BỊ CẮT CỤT (TRUNCATED).
-        - Dùng arrow function khi có thể.
-        - Init DOM, Render, Events.
-        - Đảm bảo hàm init() được gọi ở cuối.
-        """
-        resp = self.client.send_data_to_AI(prompt, max_output_tokens=8192)
-        return self._extract_code(resp, "javascript")
+        return html, css, js
+
+    def _extract_between(self, text: str, start_marker: str, end_marker: str) -> str:
+        """Trích xuất text giữa 2 markers"""
+        try:
+            start_idx = text.find(start_marker)
+            if start_idx == -1:
+                return ""
+            start_idx += len(start_marker)
+            
+            end_idx = text.find(end_marker, start_idx)
+            if end_idx == -1:
+                end_idx = len(text)
+            
+            content = text[start_idx:end_idx].strip()
+            # Loại bỏ dấu ngoặc kép và dấu phẩy
+            content = content.strip(' ",')
+            return content
+        except:
+            return ""
+
+    def _auto_fix_js(self, js_code: str) -> str:
+        """Tự động fix một số lỗi JS phổ biến"""
+        # Loại bỏ localStorage/sessionStorage
+        js_code = re.sub(r'localStorage\.[a-zA-Z]+\([^)]*\)', '/* localStorage removed */', js_code)
+        js_code = re.sub(r'sessionStorage\.[a-zA-Z]+\([^)]*\)', '/* sessionStorage removed */', js_code)
+        
+        # Thêm init() call nếu thiếu
+        if 'init()' not in js_code and 'function init(' in js_code:
+            js_code += '\n\ninit();'
+        
+        return js_code
 
     def process_experiment(self, exp_data: Dict, template_path: str, prompt_path: str):
-        lesson = exp_data.get('Bài học', 'Unknown')
-        logger.info(f"🚀 Xử lý: {lesson}")
-        self._load_constraints(prompt_path)
-        
-        try:
-            blueprint = self.generate_blueprint(exp_data)
-            if not blueprint: return None
-            
-            html, css = self.generate_html_css(exp_data, blueprint)
-            js_logic = self.generate_js_logic(exp_data, blueprint)
-            js_ui = self.generate_js_ui(exp_data, blueprint, js_logic)
-            
-            # Assembly
-            full_js = f"/* {os.path.basename(prompt_path)} */\n{js_logic}\n{js_ui}"
-            
-            template = self._read_file(template_path)
-            output = template
-            replacements = {
-                "{{CHAPTER_TITLE}}": str(exp_data.get("Chương", "")),
-                "{{LESSON_TITLE}}": str(lesson),
-                "{{CONTENT_SUMMARY}}": str(exp_data.get("Nội dung trong bài học", ""))[:200],
-                "{{HTML_CONTENT}}": html,
-                "{{CSS_CONTENT}}": css,
-                "{{JS_CONTENT}}": full_js
-            }
-            for k, v in replacements.items():
-                output = output.replace(k, v)
-            
-            safe_name = re.sub(r'[^\w\-]', '_', lesson)
-            filename = os.path.join(self.output_dir, f"{safe_name}.html")
-            with open(filename, 'w', encoding='utf-8') as f: f.write(output)
-            
-            logger.info(f"✅ Xong: {filename}")
-            return filename
-        except Exception as e:
-            logger.error(f"❌ Lỗi: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
-            return None
+        """Wrapper cho backward compatibility"""
+        return self.generate_complete_experiment(exp_data, template_path, prompt_path)

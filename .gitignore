@@ -4,3 +4,4 @@ venv/
 *.xlsx
 generated_output/
 json_output/
+test_connect.py
