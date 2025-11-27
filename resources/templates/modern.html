@@ -1,0 +1,47 @@
+<!-- @format -->
+
+<!DOCTYPE html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{{CHAPTER_TITLE}} - {{LESSON_TITLE}}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js CDN if needed -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+      /* ======== START OF INJECTED CSS ======== */
+      /* This comment is added to prevent syntax errors if the injected CSS is malformed. */
+      {{CSS_CONTENT}}
+      /* ======== END OF INJECTED CSS ======== */
+    </style>
+  </head>
+  <body class="bg-gray-100">
+    <div class="container mx-auto px-4 py-8">
+      <header class="mb-6 text-center">
+        <h1 class="text-3xl font-bold text-blue-600">{{CHAPTER_TITLE}}</h1>
+        <h2 class="text-2xl font-semibold text-gray-700">{{LESSON_TITLE}}</h2>
+        <p class="mt-2 text-gray-600 italic">{{CONTENT_SUMMARY}}</p>
+      </header>
+
+      <main>
+        <section
+          id="experiment-section"
+          class="bg-white p-6 rounded-lg shadow-md mb-6">
+          <!-- EXPERIMENT CONTENT WILL BE INSERTED HERE -->
+          <div id="simulation-area">
+            <!-- Generated HTML from AI goes here -->
+            {{HTML_CONTENT}}
+          </div>
+        </section>
+      </main>
+    </div>
+    <!-- prettier-ignore -->
+    <script>
+      // ======== START OF INJECTED JS ======== 
+      // This comment is added to prevent syntax errors if the injected JS is malformed.
+      {{JS_CONTENT}}
+      // ======== END OF INJECTED JS ======== 
+    </script>
+  </body>
+</html>

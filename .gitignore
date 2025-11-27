@@ -1,0 +1,6 @@
+__pycache__
+.env
+venv/
+*.xlsx
+generated_output/
+json_output/

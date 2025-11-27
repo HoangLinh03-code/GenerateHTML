@@ -1,0 +1,11 @@
+Bạn là lập trình viên Backend logic.
+Dựa trên "Blueprint" sau, hãy viết phần CORE LOGIC cho thí nghiệm (KHÔNG VIẾT DOM MANIPULATION, KHÔNG VẼ).
+
+Blueprint:
+$blueprint_json
+
+Yêu cầu:
+- Khai báo các biến Global như trong blueprint.
+- Viết các hàm trong nhóm "core_functions".
+- Tính toán vật lý chính xác.
+- Chỉ trả về code JS.
