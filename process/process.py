@@ -29,7 +29,7 @@ def main():
     parser.add_argument('--input_html', type=str, required=True, help='Path to the initial HTML file to refine.')
     parser.add_argument('--output_html', type=str, help='Path to save the refined HTML file (default: input_html with _refined suffix).')
     parser.add_argument('--prompt_file', type=str, default='prompt_refine.txt', help='Path to the refinement prompt file.')
-    parser.add_argument('--max_tokens', type=int, default=8192, help='Max output tokens for the AI call.')
+    parser.add_argument('--max_tokens', type=int, default=20000, help='Max output tokens for the AI call.')
     
     args = parser.parse_args()
 

@@ -87,7 +87,7 @@ class VertexClient:
             logger.error(f"Traceback: {traceback.format_exc()}")
             return f"Lỗi xử lý response: {str(e)}"
 
-    def send_data_to_AI(self, prompt, file_paths=None, temperature=0.7, top_p=0.8, max_output_tokens=8192):
+    def send_data_to_AI(self, prompt, file_paths=None, temperature=0.7, top_p=0.8, max_output_tokens=20000):
         """
         Gửi prompt và files đến AI để sinh nội dung
         
@@ -159,7 +159,7 @@ class VertexClient:
             logger.error(f"Traceback: {traceback.format_exc()}")
             return None
         
-    def send_data_to_check(self, prompt, temperature=0.5, top_p=0.8, max_output_tokens=8192):
+    def send_data_to_check(self, prompt, temperature=0.5, top_p=0.8, max_output_tokens=20000):
         """
         Gửi prompt để kiểm tra/validate
         

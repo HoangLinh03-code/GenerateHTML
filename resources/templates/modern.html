@@ -5,43 +5,25 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>{{CHAPTER_TITLE}} - {{LESSON_TITLE}}</title>
+    <title>{{LESSON_TITLE}}</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Chart.js CDN if needed -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-      /* ======== START OF INJECTED CSS ======== */
-      /* This comment is added to prevent syntax errors if the injected CSS is malformed. */
       {{CSS_CONTENT}}
-      /* ======== END OF INJECTED CSS ======== */
+
+      body {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        min-height: 100vh;
+      }
     </style>
   </head>
-  <body class="bg-gray-100">
-    <div class="container mx-auto px-4 py-8">
-      <header class="mb-6 text-center">
-        <h1 class="text-3xl font-bold text-blue-600">{{CHAPTER_TITLE}}</h1>
-        <h2 class="text-2xl font-semibold text-gray-700">{{LESSON_TITLE}}</h2>
-        <p class="mt-2 text-gray-600 italic">{{CONTENT_SUMMARY}}</p>
-      </header>
-
-      <main>
-        <section
-          id="experiment-section"
-          class="bg-white p-6 rounded-lg shadow-md mb-6">
-          <!-- EXPERIMENT CONTENT WILL BE INSERTED HERE -->
-          <div id="simulation-area">
-            <!-- Generated HTML from AI goes here -->
-            {{HTML_CONTENT}}
-          </div>
-        </section>
-      </main>
+  <body>
+    <div class="container mx-auto px-4 py-12">
+      <div class="bg-white/10 backdrop-blur-lg rounded-3xl shadow-2xl p-8">
+        <h1 class="text-4xl font-bold text-white mb-8">{{LESSON_TITLE}}</h1>
+        {{HTML_CONTENT}}
+      </div>
     </div>
     <!-- prettier-ignore -->
-    <script>
-      // ======== START OF INJECTED JS ======== 
-      // This comment is added to prevent syntax errors if the injected JS is malformed.
-      {{JS_CONTENT}}
-      // ======== END OF INJECTED JS ======== 
-    </script>
+    <script>{{JS_CONTENT}}</script>
   </body>
 </html>
