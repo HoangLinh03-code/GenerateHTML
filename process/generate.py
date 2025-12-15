@@ -6,6 +6,13 @@ import re
 import logging
 from typing import Dict, Tuple
 from api.callAPI import VertexClient
+from process.prompt import (
+    PROMPT_REFINE_CHEMISTRY,
+    PROMPT_REFINE_PHYSICS,
+    PROMPT_REFINE_BIOLOGY,
+    PROMPT_REFINE_MATH
+)
+
 
 logger = logging.getLogger(__name__)
 
@@ -190,6 +197,88 @@ Chỉ trả về JSON Blueprint, không giải thích."""
         except Exception as e:
             logger.error(f"❌ Blueprint parse error: {e}")
             return None
+
+    def _ai_refine_output(
+      self,
+      html: str,
+      css: str,
+      js: str,
+      exp_data: Dict
+  ) -> Tuple[str, str, str]:
+      """
+      AI Post-processing stage:
+      - Fix UI / animation
+      - Fix JS logic
+      - Inject knowledge panel & theory integration
+      """
+
+      subject = exp_data.get("Môn học", "HÓA").upper()
+      lesson = exp_data.get("Bài học", "")
+      chapter = exp_data.get("Chương", "")
+      description = exp_data.get("Mô tả thí nghiệm thực hiện", "")[:1000]
+
+      # Chọn prompt theo môn
+      prompt_template = self._get_refine_prompt_by_subject(subject)
+
+      prompt = prompt_template.format(
+          LESSON=lesson,
+          CHAPTER=chapter,
+          DESCRIPTION=description,
+          HTML=html,
+          CSS=css,
+          JS=js
+      )
+
+      logger.info(f"🧠 AI refining output for subject: {subject}")
+
+      response = self.client.send_data_to_AI(
+          prompt,
+          temperature=0.15,
+          max_output_tokens=20000
+      )
+
+      if not response:
+          logger.warning("⚠️ AI refine failed → fallback original output")
+          return html, css, js
+
+      # Parse JSON result
+      try:
+          json_match = re.search(r'\{[\s\S]*\}', response)
+          data = json.loads(json_match.group())
+
+          refined_html = self._clean_code(data.get("html", html), "html")
+          refined_css = self._clean_code(data.get("css", css), "css")
+          refined_js = self._clean_code(data.get("js", js), "js")
+
+          # Validate again
+          from process.validate import CodeValidator
+
+          if not CodeValidator.validate_html(refined_html)[0]:
+              raise ValueError("HTML invalid after refine")
+          if not CodeValidator.validate_css(refined_css)[0]:
+              raise ValueError("CSS invalid after refine")
+          if not CodeValidator.validate_js(refined_js)[0]:
+              raise ValueError("JS invalid after refine")
+
+          logger.info("✅ AI refine success")
+          return refined_html, refined_css, refined_js
+
+      except Exception as e:
+          logger.error(f"❌ AI refine parse/validate error: {e}")
+          return html, css, js
+    def _get_refine_prompt_by_subject(self, subject: str) -> str:
+      subject = subject.upper()
+
+      if subject == "LÝ":
+          return PROMPT_REFINE_PHYSICS
+      if subject == "SINH":
+          return PROMPT_REFINE_BIOLOGY
+      if subject == "TOÁN":
+          return PROMPT_REFINE_MATH
+
+      # Default: Hóa
+      return PROMPT_REFINE_CHEMISTRY
+
 
     def _render_from_blueprint(self, blueprint: Dict, exp_data: Dict) -> Tuple[str, str, str]:
         """
