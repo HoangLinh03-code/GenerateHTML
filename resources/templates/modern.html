@@ -6,24 +6,168 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>{{LESSON_TITLE}}</title>
+    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-      {{CSS_CONTENT}}
+    <!-- MathJax để hiển thị công thức hóa học -->
+    <script>
+      window.MathJax = {
+        tex: {
+          inlineMath: [
+            ["$", "$"],
+            ["\\(", "\\)"],
+          ],
+        },
+        svg: { fontCache: "global" },
+      };
+    </script>
+    <script
+      id="MathJax-script"
+      async
+      src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
 
-      body {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        min-height: 100vh;
+    <style>
+      /* Glassmorphism Base */
+      .glass-panel {
+        background: rgba(255, 255, 255, 0.9);
+        backdrop-filter: blur(12px);
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.1);
       }
+
+      /* Scrollbar đẹp hơn */
+      ::-webkit-scrollbar { width: 6px; }
+      ::-webkit-scrollbar-track { background: #f1f1f1; }
+      ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+      ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+      /* Generated CSS injection */
+      {{CSS_CONTENT}}
     </style>
   </head>
-  <body>
-    <div class="container mx-auto px-4 py-12">
-      <div class="bg-white/10 backdrop-blur-lg rounded-3xl shadow-2xl p-8">
-        <h1 class="text-4xl font-bold text-white mb-8">{{LESSON_TITLE}}</h1>
-        {{HTML_CONTENT}}
+  <body
+    class="bg-gradient-to-br from-slate-50 to-blue-50 min-h-screen font-sans text-slate-800 overflow-hidden">
+    <!-- Header -->
+    <nav
+      class="bg-white/80 backdrop-blur-md border-b border-slate-200 h-16 flex items-center fixed w-full top-0 z-50">
+      <div class="container mx-auto px-6 flex justify-between items-center">
+        <div class="flex items-center gap-3">
+          <span class="text-2xl">🧪</span>
+          <div>
+            <h1 class="text-lg font-bold text-blue-900 leading-tight">
+              {{LESSON_TITLE}}
+            </h1>
+            <p class="text-xs text-slate-500">{{CHAPTER_TITLE}}</p>
+          </div>
+        </div>
+        <div class="flex gap-2">
+          <button
+            onclick="window.location.reload()"
+            class="p-2 hover:bg-slate-100 rounded-full text-slate-600"
+            title="Tải lại">
+            🔄
+          </button>
+        </div>
+      </div>
+    </nav>
+
+    <!-- Main Layout -->
+    <div
+      class="container mx-auto px-4 pt-20 pb-4 h-screen flex flex-col lg:flex-row gap-6">
+      <!-- LEFT: Simulation Area (65%) -->
+      <div class="lg:w-2/3 flex flex-col gap-4 h-full pb-4">
+        <!-- Canvas Container -->
+        <div
+          class="glass-panel rounded-2xl flex-1 relative overflow-hidden flex flex-col justify-center items-center bg-white p-2">
+          {{HTML_CONTENT}}
+          <!-- Canvas id="mainCanvas" sẽ được AI sinh ra và đặt vào đây -->
+        </div>
+
+        <!-- Controls Area (AI sẽ inject buttons vào đây) -->
+        <div
+          id="controls-area"
+          class="glass-panel rounded-xl p-4 flex flex-wrap justify-center items-center gap-4 min-h-[80px]">
+          <!-- Buttons placeholders -->
+          <span class="text-slate-400 text-sm italic"
+            >Đang tải bộ điều khiển...</span
+          >
+        </div>
       </div>
     </div>
+
+    <!-- Global Helpers cho AI gọi -->
+    <script>
+      // Hàm cập nhật lý thuyết
+      window.updateTheory = (equation, explanation) => {
+        const container = document.getElementById("theory-content");
+        if (!container) return;
+
+        container.innerHTML = `
+                <div class="p-3 bg-blue-50/80 rounded-lg border border-blue-100 shadow-sm transition-all duration-300">
+                    <p class="text-xs font-bold text-blue-500 uppercase mb-1">Phương trình hiện tại</p>
+                    <div class="font-mono text-center text-lg py-2 text-blue-900 overflow-x-auto">
+                        \\[ ${equation} \\]
+                    </div>
+                </div>
+                <div class="mt-3 p-3 bg-white/50 rounded-lg border border-slate-100">
+                    <p class="text-sm text-slate-700 leading-relaxed">💡 ${explanation}</p>
+                </div>
+            `;
+        if (window.MathJax) MathJax.typeset();
+      };
+
+      // Hàm cập nhật bước đang hoạt động
+      window.updateActiveStep = stepIndex => {
+        const steps = document.querySelectorAll("#step-guide li");
+        steps.forEach((li, idx) => {
+          const dot = li.querySelector("span");
+          const title = li.querySelector("h4");
+          const desc = li.querySelector("p");
+
+          if (idx === stepIndex) {
+            // Active style
+            dot.className =
+              "absolute -left-[9px] top-0 w-4 h-4 rounded-full bg-green-500 border-2 border-white shadow-green-500/50 shadow-lg transition-all";
+            title.className =
+              "font-bold text-sm text-green-700 transition-colors";
+            desc.className = "text-sm text-slate-700 mt-1 transition-colors";
+          } else if (idx < stepIndex) {
+            // Completed style
+            dot.className =
+              "absolute -left-[9px] top-0 w-4 h-4 rounded-full bg-blue-400 border-2 border-white";
+            title.className = "font-bold text-sm text-blue-600";
+            desc.className = "text-xs text-slate-500 mt-1";
+          } else {
+            // Pending style
+            dot.className =
+              "absolute -left-[9px] top-0 w-4 h-4 rounded-full bg-slate-200 border-2 border-white";
+            title.className = "font-bold text-sm text-slate-400";
+            desc.className = "text-xs text-slate-400 mt-1";
+          }
+        });
+      };
+
+      // Hàm sinh danh sách các bước
+      window.initSteps = stepsArray => {
+        const ul = document.getElementById("step-guide");
+        if (!ul) return;
+        ul.innerHTML = stepsArray
+          .map(
+            (step, idx) => `
+                <li class="pl-6 pb-6 relative group last:pb-0">
+                    <span class="absolute -left-[9px] top-0 w-4 h-4 rounded-full bg-slate-200 border-2 border-white transition-all duration-300"></span>
+                    <h4 class="font-bold text-sm text-slate-400">${step.title}</h4>
+                    <p class="text-xs text-slate-400 mt-1">${step.desc}</p>
+                </li>
+            `
+          )
+          .join("");
+        updateActiveStep(0);
+      };
+    </script>
+
     <!-- prettier-ignore -->
-    <script>{{JS_CONTENT}}</script>
+    <script>
+      {{JS_CONTENT}}
+    </script>
   </body>
 </html>

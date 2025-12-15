@@ -168,8 +168,8 @@ Chỉ trả về JSON Blueprint, không giải thích."""
 
         response = self.client.send_data_to_AI(
             prompt,
-            max_output_tokens=20000,
-            temperature=0.3
+            max_output_tokens=30000,
+            temperature=0.1
         )
         
         if not response:
@@ -415,8 +415,8 @@ Chỉ trả về JSON với 3 keys: html, css, js."""
 
         response = self.client.send_data_to_AI(
             prompt,
-            max_output_tokens=16384,
-            temperature=0.2
+            max_output_tokens=30000,
+            temperature=0.1
         )
         
         if not response:
