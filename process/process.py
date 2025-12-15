@@ -48,7 +48,7 @@ def main():
         logger.error("❌ PROJECT_ID not found in .env")
         return
 
-    vertex_client = VertexClient(PROJECT_ID, credentials, "gemini-2.5-pro")
+    vertex_client = VertexClient(PROJECT_ID, credentials, "gemini-3-pro-preview")
 
     try:
         initial_html_content = read_file(args.input_html)

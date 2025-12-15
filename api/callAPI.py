@@ -1,7 +1,7 @@
-import vertexai, os
-from vertexai.generative_models import GenerativeModel, Part, GenerationConfig
+import os
 from dotenv import load_dotenv
 from google.oauth2 import service_account
+from google import genai  # Thư viện mới
 import sys
 import traceback
 import logging
@@ -10,16 +10,12 @@ logger = logging.getLogger(__name__)
 
 # ============ QUAN TRỌNG: Xử lý đường dẫn cho PyInstaller ============
 if getattr(sys, 'frozen', False):
-    # Chạy từ file .exe (PyInstaller)
-    base_path = sys._MEIPASS  # Thư mục tạm của PyInstaller
+    base_path = sys._MEIPASS
 else:
-    # Chạy từ Python script thường
     base_path = os.path.dirname(__file__)
 
-# Đường dẫn đến file .env
 dotenv_path = os.path.join(base_path, '.env')
 
-# Load .env với explicit path
 if os.path.exists(dotenv_path):
     load_dotenv(dotenv_path)
     logger.info(f"Loaded .env from: {dotenv_path}")
@@ -31,53 +27,68 @@ else:
 
 
 class VertexClient:
-    """Client để tương tác với Vertex AI - PHIÊN BẢN CẢI TIẾN"""
+    """Client để tương tác với Vertex AI - PHIÊN BẢN GEMINI 3 PRO"""
     
-    def __init__(self, project_id, creds, model, region="us-central1"):
-        vertexai.init(
-            project=project_id,
-            location=region,
-            credentials=creds
-        )
-        self.model = GenerativeModel(model)
-        logger.info(f"✅ Initialized VertexClient with model: {model}")
+    def __init__(self, project_id, creds, model="gemini-3-pro-preview", region="global"):
+        """
+        Khởi tạo client với Google GenAI SDK mới
+        
+        Args:
+            project_id: Google Cloud Project ID
+            creds: Service Account Credentials
+            model: Tên model (mặc định: gemini-3-pro-preview)
+            region: Region (mặc định: global)
+        """
+        try:
+            self.client = genai.Client(
+                vertexai=True,
+                project=project_id,
+                location=region,
+                credentials=creds
+            )
+            self.model_name = model
+            logger.info(f"✅ Initialized VertexClient with model: {model}")
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize client: {e}")
+            raise
     
     def _safe_extract_text(self, response):
-        """Xử lý response an toàn, tránh lỗi multiple content parts"""
+        """
+        Xử lý response an toàn từ GenAI SDK
+        
+        Args:
+            response: Response object từ generate_content
+            
+        Returns:
+            str: Text content hoặc error message
+        """
         try:
-            # Thử lấy text trực tiếp trước
+            # GenAI SDK trả về response.text trực tiếp
             if hasattr(response, 'text') and response.text:
-                return response.text.strip()
+                text = response.text.strip()
+                logger.info(f"📄 Extracted {len(text)} chars from response")
+                return text
             
-            # Nếu không có text, thử lấy từ candidates
+            # Fallback: kiểm tra candidates
             if hasattr(response, 'candidates') and response.candidates:
                 candidate = response.candidates[0]
-                if hasattr(candidate, 'content') and candidate.content:
-                    if hasattr(candidate.content, 'parts') and candidate.content.parts:
-                        # Ghép tất cả text parts lại
-                        text_parts = []
-                        for part in candidate.content.parts:
-                            if hasattr(part, 'text') and part.text:
-                                text_parts.append(part.text.strip())
-                        if text_parts:
-                            full_text = '\n'.join(text_parts)
-                            logger.info(f"📄 Extracted {len(full_text)} chars from {len(text_parts)} parts")
-                            return full_text
-            
-            # Nếu vẫn không có text, thử lấy từ finish_reason
-            if hasattr(response, 'candidates') and response.candidates:
-                candidate = response.candidates[0]
+                
+                # Kiểm tra finish_reason
                 if hasattr(candidate, 'finish_reason'):
                     reason = str(candidate.finish_reason)
-                    logger.warning(f"Response finished with reason: {reason}")
                     
-                    # Nếu bị SAFETY hoặc MAX_TOKENS, log chi tiết
                     if 'SAFETY' in reason:
                         logger.error("❌ Response blocked by SAFETY filter!")
+                        return "Response blocked by safety filter"
                     elif 'MAX_TOKENS' in reason or 'LENGTH' in reason:
-                        logger.warning("⚠️ Response truncated due to MAX_TOKENS limit!")
+                        logger.warning("⚠️ Response truncated due to MAX_TOKENS!")
+                        # Vẫn cố lấy text nếu có
+                        if hasattr(candidate, 'content') and hasattr(candidate.content, 'parts'):
+                            text_parts = [p.text for p in candidate.content.parts if hasattr(p, 'text')]
+                            if text_parts:
+                                return '\n'.join(text_parts)
                     
-                    return f"Response finished with reason: {reason}"
+                    logger.warning(f"Response finished with reason: {reason}")
             
             logger.error("❌ Không thể lấy được nội dung từ AI response")
             return "Không thể lấy được nội dung từ AI response"
@@ -96,52 +107,54 @@ class VertexClient:
             file_paths: Danh sách đường dẫn files (PDF, images, etc.)
             temperature: Temperature (0.0-1.0)
             top_p: Top-p sampling (0.0-1.0)
-            max_output_tokens: Số tokens tối đa cho output (QUAN TRỌNG cho HTML dài)
+            max_output_tokens: Số tokens tối đa cho output
             
         Returns:
             str: Response text từ AI
         """
-        parts = []
-        
-        # Thêm files nếu có
-        if file_paths:
-            for file_path in file_paths:
-                try:
-                    with open(file_path, "rb") as f:
-                        file_bytes = f.read()
-                    
-                    # Xác định mime type
-                    mime_type = "application/pdf"
-                    if file_path.lower().endswith(('.png', '.jpg', '.jpeg')):
-                        mime_type = "image/jpeg"
-                    elif file_path.lower().endswith('.txt'):
-                        mime_type = "text/plain"
-                    
-                    parts.append(
-                        Part.from_data(data=file_bytes, mime_type=mime_type)
-                    )
-                    logger.info(f"📎 Loaded file: {os.path.basename(file_path)}")
-                except Exception as e:
-                    logger.error(f"❌ Error loading file {file_path}: {e}")
-        
-        # Thêm prompt text
-        parts.append(Part.from_text(prompt))
-        
-        # Generation config với max_output_tokens cao
-        generation_config = GenerationConfig(
-            temperature=temperature,
-            top_p=top_p,
-            max_output_tokens=max_output_tokens,  # QUAN TRỌNG: Đủ lớn cho HTML dài
-            candidate_count=1
-        )
-        
-        logger.info(f"🤖 Calling AI with: temp={temperature}, top_p={top_p}, max_tokens={max_output_tokens}")
-        
         try:
-            response = self.model.generate_content(
-                parts, 
-                generation_config=generation_config,
-                stream=False
+            # Chuẩn bị nội dung
+            contents = []
+            
+            # Thêm files nếu có (GenAI SDK hỗ trợ multimodal)
+            if file_paths:
+                for file_path in file_paths:
+                    try:
+                        with open(file_path, "rb") as f:
+                            file_bytes = f.read()
+                        
+                        # Xác định mime type
+                        mime_type = "application/pdf"
+                        if file_path.lower().endswith(('.png', '.jpg', '.jpeg')):
+                            mime_type = "image/jpeg"
+                        elif file_path.lower().endswith('.txt'):
+                            mime_type = "text/plain"
+                        
+                        # GenAI SDK format
+                        contents.append({
+                            "type": "inline_data",
+                            "mime_type": mime_type,
+                            "data": file_bytes
+                        })
+                        
+                        logger.info(f"📎 Loaded file: {os.path.basename(file_path)}")
+                    except Exception as e:
+                        logger.error(f"❌ Error loading file {file_path}: {e}")
+            
+            # Thêm prompt text
+            contents.append(prompt)
+            
+            logger.info(f"🤖 Calling AI with: temp={temperature}, top_p={top_p}, max_tokens={max_output_tokens}")
+            
+            # Gọi API với GenAI SDK
+            response = self.client.models.generate_content(
+                model=self.model_name,
+                contents=contents,
+                config={
+                    "temperature": temperature,
+                    "top_p": top_p,
+                    "max_output_tokens": max_output_tokens
+                }
             )
             
             # Extract text
@@ -172,22 +185,17 @@ class VertexClient:
         Returns:
             str: Response text từ AI
         """
-        parts = [Part.from_text(prompt)]
-
-        generation_config = GenerationConfig(
-            temperature=temperature,
-            top_p=top_p,
-            max_output_tokens=max_output_tokens,
-            candidate_count=1
-        )
-
         logger.info(f"🔍 Calling AI for check: temp={temperature}, top_p={top_p}")
         
         try:
-            response = self.model.generate_content(
-                parts, 
-                generation_config=generation_config,
-                stream=False
+            response = self.client.models.generate_content(
+                model=self.model_name,
+                contents=prompt,
+                config={
+                    "temperature": temperature,
+                    "top_p": top_p,
+                    "max_output_tokens": max_output_tokens
+                }
             )
             
             result = self._safe_extract_text(response)

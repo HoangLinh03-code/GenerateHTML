@@ -526,8 +526,8 @@ class EnhancedHTMLGeneratorGUI:
         try:
             c = get_vertex_ai_credentials()
             if c:
-                self.vertex_client = VertexClient(os.getenv("PROJECT_ID"), c, "gemini-2.5-pro")
-                logging.info("✅ Vertex AI Connected (gemini-2.5-pro)")
+                self.vertex_client = VertexClient(os.getenv("PROJECT_ID"), c, "gemini-3-pro-preview")
+                logging.info("✅ Vertex AI Connected (gemini-3-pro-preview)")
             else:
                 logging.error("❌ Vertex AI Credentials Error")
         except Exception as e:
