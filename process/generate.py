@@ -1,4 +1,4 @@
-# process/generate_v2.py - PHIÊN BẢN CẢI TIẾN TOÀN DIỆN
+# process/generate_fixed.py - FIXED VERSION
 
 import json
 import os
@@ -6,550 +6,409 @@ import re
 import logging
 from typing import Dict, Tuple
 from api.callAPI import VertexClient
-from process.prompt import (
-    PROMPT_REFINE_CHEMISTRY,
-    PROMPT_REFINE_PHYSICS,
-    PROMPT_REFINE_BIOLOGY,
-    PROMPT_REFINE_MATH
-)
-
+# Import prompts - sẽ dùng version đã fix
+try:
+    from process.prompt_fixed import (
+        PROMPT_REFINE_CHEMISTRY,
+        PROMPT_REFINE_PHYSICS,
+        PROMPT_REFINE_BIOLOGY,
+        PROMPT_REFINE_MATH
+    )
+except ImportError:
+    # Fallback nếu chưa tạo file mới
+    from process.prompt import (
+        PROMPT_REFINE_CHEMISTRY,
+        PROMPT_REFINE_PHYSICS,
+        PROMPT_REFINE_BIOLOGY,
+        PROMPT_REFINE_MATH
+    )
 
 logger = logging.getLogger(__name__)
 
 class EnhancedExperimentGenerator:
-    """Generator cải tiến với UI đẹp hơn và logic JS chặt chẽ hơn"""
+    """Generator với template layout tối ưu - không bị dính bó"""
     
     def __init__(self, vertex_client: VertexClient, output_dir: str):
         self.client = vertex_client
         self.output_dir = output_dir
         os.makedirs(output_dir, exist_ok=True)
         
-        # Load design system
-        self.design_tokens = self._load_design_tokens()
-        
-    def _load_design_tokens(self) -> Dict:
-        """Load design tokens để đảm bảo UI consistency"""
-        return {
-            "colors": {
-                "primary": "#3b82f6",  # blue-500
-                "secondary": "#8b5cf6",  # violet-500
-                "success": "#10b981",  # green-500
-                "danger": "#ef4444",  # red-500
-                "warning": "#f59e0b",  # amber-500
-                "dark": "#1e293b",  # slate-800
-                "light": "#f1f5f9"  # slate-100
-            },
-            "spacing": {
-                "container": "max-w-7xl mx-auto px-4 sm:px-6 lg:px-8",
-                "section": "p-6 sm:p-8",
-                "card": "rounded-xl shadow-lg"
-            },
-            "typography": {
-                "heading": "font-bold tracking-tight",
-                "body": "text-gray-700 leading-relaxed"
-            }
-        }
-
     def generate_complete_experiment(self, exp_data: Dict, template_path: str, prompt_path: str):
         """
-        Sinh HTML với 2 BƯỚC:
-        1. Tạo Blueprint (cấu trúc + logic)
-        2. Render thành HTML/CSS/JS thực tế
+        Sinh HTML với blueprint approach
         """
         lesson = exp_data.get('Bài học', 'Unknown')
-        logger.info(f"🚀 Sinh HTML nâng cao cho: {lesson}")
+        subject = exp_data.get('Môn học', 'Unknown').upper()
         
-        # BƯỚC 1: Tạo Blueprint
-        blueprint = self._generate_blueprint(exp_data)
-        if not blueprint:
-            logger.error("❌ Không tạo được blueprint")
+        logger.info(f"🚀 Generating: {lesson} ({subject})")
+        
+        # Load prompt template
+        with open(prompt_path, 'r', encoding='utf-8') as f:
+            base_prompt = f.read()
+        
+        # Tạo prompt hoàn chỉnh
+        full_prompt = self._build_generation_prompt(exp_data, base_prompt)
+        
+        # Call AI
+        response = self.client.send_data_to_AI(
+            full_prompt,
+            max_output_tokens=30000,
+            temperature=0.2
+        )
+        
+        if not response:
+            logger.error("❌ AI response failed")
             return None
         
-        # BƯỚC 2: Render từ Blueprint
-        html, css, js = self._render_from_blueprint(blueprint, exp_data)
+        # Parse response
+        html, css, js = self._parse_response(response)
+        
+        if not html or not js:
+            logger.error("❌ Invalid response format")
+            return None
         
         # Validate
         from process.validate import CodeValidator
         
         is_valid_html, msg = CodeValidator.validate_html(html)
         if not is_valid_html:
-            logger.error(f"❌ HTML không hợp lệ: {msg}")
-            return None
+            logger.warning(f"⚠️ HTML validation: {msg}")
+            html = self._fix_html_structure(html)
         
         is_valid_js, msg = CodeValidator.validate_js(js)
         if not is_valid_js:
-            logger.warning(f"⚠️ JS có warning: {msg}")
+            logger.warning(f"⚠️ JS validation: {msg}")
             js = self._auto_fix_js(js)
         
+        # AI refinement (optional)
+        if self._should_refine(exp_data):
+            html, css, js = self._ai_refine_output(html, css, js, exp_data)
+        
         # Inject vào template
-        with open(template_path, 'r', encoding='utf-8') as f:
-            template = f.read()
+        output = self._inject_into_template(
+            template_path,
+            exp_data,
+            html,
+            css,
+            js
+        )
         
-        output = template \
-            .replace("{{CHAPTER_TITLE}}", str(exp_data.get("Chương", ""))) \
-            .replace("{{LESSON_TITLE}}", str(lesson)) \
-            .replace("{{CONTENT_SUMMARY}}", str(exp_data.get("Nội dung trong bài học", ""))[:200]) \
-            .replace("{{HTML_CONTENT}}", html) \
-            .replace("{{CSS_CONTENT}}", css) \
-            .replace("{{JS_CONTENT}}", js)
-        
-        # Lưu file
+        # Save
         safe_name = re.sub(r'[^\w\-]', '_', lesson)
         filename = os.path.join(self.output_dir, f"{safe_name}.html")
         
         with open(filename, 'w', encoding='utf-8') as f:
             f.write(output)
         
-        logger.info(f"✅ Đã tạo: {filename}")
+        logger.info(f"✅ Generated: {filename}")
         return filename
 
-    def _generate_blueprint(self, exp_data: Dict) -> Dict:
-        """
-        BƯỚC 1: Tạo Blueprint (JSON schema) cho thí nghiệm
-        Blueprint định nghĩa cấu trúc, các thành phần, và logic
-        """
-        mo_ta = exp_data.get('Mô tả thí nghiệm thực hiện', '')
+    def _build_generation_prompt(self, exp_data: Dict, base_prompt: str) -> str:
+        """Xây dựng prompt với context đầy đủ"""
         
-        prompt = f"""Bạn là Solution Architect cho thí nghiệm hóa học tương tác.
+        subject = exp_data.get('Môn học', '').upper()
+        lesson = exp_data.get('Bài học', '')
+        chapter = exp_data.get('Chương', '')
+        description = exp_data.get('Mô tả thí nghiệm thực hiện', '')[:1500]
+        content = exp_data.get('Nội dung trong bài học', '')[:500]
+        
+        # Chọn theme và icons theo môn học
+        subject_config = self._get_subject_config(subject)
+        
+        prompt = f"""
+{base_prompt}
 
-**THÔNG TIN THÍ NGHIỆM:**
-Bài học: {exp_data.get('Bài học')}
-Chương: {exp_data.get('Chương')}
+===========================================
+THÔNG TIN BÀI HỌC
+===========================================
 
-Mô tả chi tiết:
-{mo_ta[:1500]}
+**Môn học:** {subject}
+**Chương:** {chapter}
+**Bài học:** {lesson}
 
-**NHIỆM VỤ:**
-Tạo Blueprint (JSON) định nghĩa:
-1. Các thành phần UI (containers, canvas, controls)
-2. State management structure
-3. Core logic functions
-4. Animation sequences
-5. User interactions
+**Nội dung tóm tắt:**
+{content}
 
-**FORMAT BLUEPRINT:**
+**Mô tả thí nghiệm chi tiết:**
+{description}
+
+===========================================
+YÊU CẦU CỤ THỂ CHO BÀI NÀY
+===========================================
+
+1. **Theme & Colors:** {subject_config['theme']}
+   - Primary: {subject_config['primary_color']}
+   - Secondary: {subject_config['secondary_color']}
+   - Accent: {subject_config['accent_color']}
+
+2. **Icons phù hợp:** {' '.join(subject_config['icons'])}
+
+3. **Layout Requirements:**
+   - Phải có full-width responsive layout
+   - Canvas/simulation area chiếm 60-70% màn hình
+   - Controls/info panel riêng biệt, rõ ràng
+   - Không bị overlap hoặc dính bó các phần tử
+
+4. **Structure Example:**
+```html
+<div class="w-full max-w-7xl mx-auto space-y-6">
+  <!-- Main simulation area -->
+  <div class="bg-white rounded-2xl shadow-2xl p-6">
+    <canvas id="mainCanvas" class="w-full"></canvas>
+  </div>
+  
+  <!-- Controls panel -->
+  <div class="bg-white rounded-xl shadow-lg p-4">
+    <div class="flex flex-wrap gap-4 justify-center">
+      <button>...</button>
+    </div>
+  </div>
+  
+  <!-- Info panels (if needed) -->
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+    <div class="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl p-4">
+      <h3>Thông số</h3>
+      <div id="metrics">...</div>
+    </div>
+    <div id="theory-content" class="bg-gradient-to-br from-purple-50 to-pink-50 rounded-xl p-4">
+      <!-- Knowledge content -->
+    </div>
+  </div>
+</div>
+```
+
+5. **JavaScript Requirements:**
+   - Phải có CONFIG object rõ ràng
+   - State management với các trạng thái: idle, running, paused, complete
+   - requestAnimationFrame với deltaTime
+   - Event handlers clean, không inline
+   - Init function tự động chạy
+
+6. **Interactions:**
+   - Buttons phải có hover effects
+   - Canvas cập nhật smooth (60fps)
+   - Visual feedback cho mọi action
+   - Progress indicators nếu cần
+
+===========================================
+OUTPUT FORMAT (QUAN TRỌNG)
+===========================================
+
+Trả về JSON duy nhất với format:
+
 ```json
 {{
-  "layout": {{
-    "type": "grid|flex|single-canvas",
-    "sections": [
-      {{"id": "main-canvas", "type": "canvas", "size": "800x600"}},
-      {{"id": "control-panel", "type": "controls", "position": "bottom"}},
-      {{"id": "info-display", "type": "info-panel", "position": "right"}}
-    ]
-  }},
-  "state": {{
-    "global": ["running: false", "temperature: 25", "pressure: 1"],
-    "entities": ["particles: []", "molecules: []"]
-  }},
-  "functions": {{
-    "initialization": ["initCanvas", "setupParticles"],
-    "physics": ["updateParticles", "checkCollisions", "applyForces"],
-    "rendering": ["drawBackground", "drawParticles", "drawUI"],
-    "interactions": ["handleStart", "handleReset", "handleSliderChange"]
-  }},
-  "animations": {{
-    "type": "requestAnimationFrame",
-    "fps_target": 60,
-    "sequences": [
-      {{"name": "particleMovement", "duration": "continuous"}},
-      {{"name": "colorTransition", "duration": "2s"}}
-    ]
-  }},
-  "design": {{
-    "theme": "modern-gradient|glassmorphism|neumorphism",
-    "primary_color": "#3b82f6",
-    "accent_color": "#8b5cf6",
-    "effects": ["glow", "shadow-xl", "backdrop-blur"]
-  }}
+  "html": "<!-- Full HTML structure, NO <html>/<head>/<body> tags -->",
+  "css": "/* Custom CSS only, NO basic styling */",
+  "js": "// Complete working JavaScript with init() call"
 }}
 ```
 
-**YÊU CẦU:**
-- Layout phải responsive và đẹp mắt
-- State management rõ ràng, tách biệt
-- Functions được nhóm theo chức năng
-- Design hiện đại với effects hấp dẫn
+**CRITICAL RULES:**
+- HTML: Chỉ có <div>, <canvas>, <button>, <input>, <select>, <p>, <span>
+- CSS: Chỉ @keyframes và custom effects (colors/spacing dùng Tailwind)
+- JS: Phải có init() và tự gọi init() ở cuối
+- NO localStorage/sessionStorage
+- NO jQuery hoặc external libs
+- Canvas size phải được set trong JS init
 
-Chỉ trả về JSON Blueprint, không giải thích."""
+Hãy tạo một bài học tương tác chất lượng cao, đẹp mắt và hoạt động mượt mà!
+"""
+        
+        return prompt
 
-        response = self.client.send_data_to_AI(
-            prompt,
-            max_output_tokens=30000,
-            temperature=0.1
-        )
+    def _get_subject_config(self, subject: str) -> Dict:
+        """Cấu hình theme theo môn học"""
+        configs = {
+            'TOÁN': {
+                'theme': 'Modern Blue/Cyan Gradient',
+                'primary_color': '#3b82f6',
+                'secondary_color': '#06b6d4',
+                'accent_color': '#0284c7',
+                'icons': ['📐', '📊', '📈', '➕', '➖', '✖️', '➗', '∞', '√']
+            },
+            'HÓA': {
+                'theme': 'Vibrant Purple/Pink Gradient',
+                'primary_color': '#a855f7',
+                'secondary_color': '#ec4899',
+                'accent_color': '#d946ef',
+                'icons': ['🧪', '⚗️', '🔬', '🌡️', '💧', '🔥', '❄️', '⚛️', '💊']
+            },
+            'LÝ': {
+                'theme': 'Electric Indigo/Blue',
+                'primary_color': '#6366f1',
+                'secondary_color': '#3b82f6',
+                'accent_color': '#0ea5e9',
+                'icons': ['⚡', '🧲', '💡', '🔊', '🌊', '⚙️', '🎯', '🚀', '🔋']
+            },
+            'SINH': {
+                'theme': 'Natural Green/Emerald',
+                'primary_color': '#10b981',
+                'secondary_color': '#14b8a6',
+                'accent_color': '#059669',
+                'icons': ['🧬', '🦠', '🔬', '🌱', '🌿', '🫀', '🫁', '🦋', '🥚']
+            }
+        }
         
-        if not response:
-            return None
+        return configs.get(subject, configs['HÓA'])
+
+    def _should_refine(self, exp_data: Dict) -> bool:
+        """Quyết định có nên refine không"""
+        # Refine nếu mô tả phức tạp hoặc môn lý/hóa
+        description = exp_data.get('Mô tả thí nghiệm thực hiện', '')
+        subject = exp_data.get('Môn học', '').upper()
         
-        # Parse JSON
+        return len(description) > 500 or subject in ['HÓA', 'LÝ']
+
+    def _ai_refine_output(self, html: str, css: str, js: str, exp_data: Dict) -> Tuple[str, str, str]:
+        """AI post-processing để enhance output"""
+        
+        subject = exp_data.get("Môn học", "HÓA").upper()
+        
+        # Chọn prompt refinement
+        if subject == "LÝ":
+            prompt_template = PROMPT_REFINE_PHYSICS
+        elif subject == "SINH":
+            prompt_template = PROMPT_REFINE_BIOLOGY
+        elif subject == "TOÁN":
+            prompt_template = PROMPT_REFINE_MATH
+        else:
+            prompt_template = PROMPT_REFINE_CHEMISTRY
+        
+        # Escape any remaining braces in code để tránh format() error
+        html_escaped = html.replace('{', '{{').replace('}', '}}')
+        css_escaped = css.replace('{', '{{').replace('}', '}}')
+        js_escaped = js.replace('{', '{{').replace('}', '}}')
+        
         try:
-            json_match = re.search(r'```json\s*(\{.*?\})\s*```', response, re.DOTALL)
-            if json_match:
-                blueprint = json.loads(json_match.group(1))
-            else:
-                start = response.find('{')
-                end = response.rfind('}')
-                blueprint = json.loads(response[start:end+1])
-            
-            logger.info(f"✅ Blueprint created: {len(str(blueprint))} chars")
-            return blueprint
-        except Exception as e:
-            logger.error(f"❌ Blueprint parse error: {e}")
-            return None
-
-    def _ai_refine_output(
-      self,
-      html: str,
-      css: str,
-      js: str,
-      exp_data: Dict
-  ) -> Tuple[str, str, str]:
-      """
-      AI Post-processing stage:
-      - Fix UI / animation
-      - Fix JS logic
-      - Inject knowledge panel & theory integration
-      """
-
-      subject = exp_data.get("Môn học", "HÓA").upper()
-      lesson = exp_data.get("Bài học", "")
-      chapter = exp_data.get("Chương", "")
-      description = exp_data.get("Mô tả thí nghiệm thực hiện", "")[:1000]
-
-      # Chọn prompt theo môn
-      prompt_template = self._get_refine_prompt_by_subject(subject)
-
-      prompt = prompt_template.format(
-          LESSON=lesson,
-          CHAPTER=chapter,
-          DESCRIPTION=description,
-          HTML=html,
-          CSS=css,
-          JS=js
-      )
-
-      logger.info(f"🧠 AI refining output for subject: {subject}")
-
-      response = self.client.send_data_to_AI(
-          prompt,
-          temperature=0.15,
-          max_output_tokens=20000
-      )
-
-      if not response:
-          logger.warning("⚠️ AI refine failed → fallback original output")
-          return html, css, js
-
-      # Parse JSON result
-      try:
-          json_match = re.search(r'\{[\s\S]*\}', response)
-          data = json.loads(json_match.group())
-
-          refined_html = self._clean_code(data.get("html", html), "html")
-          refined_css = self._clean_code(data.get("css", css), "css")
-          refined_js = self._clean_code(data.get("js", js), "js")
-
-          # Validate again
-          from process.validate import CodeValidator
-
-          if not CodeValidator.validate_html(refined_html)[0]:
-              raise ValueError("HTML invalid after refine")
-          if not CodeValidator.validate_css(refined_css)[0]:
-              raise ValueError("CSS invalid after refine")
-          if not CodeValidator.validate_js(refined_js)[0]:
-              raise ValueError("JS invalid after refine")
-
-          logger.info("✅ AI refine success")
-          return refined_html, refined_css, refined_js
-
-      except Exception as e:
-          logger.error(f"❌ AI refine parse/validate error: {e}")
-          return html, css, js
-    def _get_refine_prompt_by_subject(self, subject: str) -> str:
-      subject = subject.upper()
-
-      if subject == "LÝ":
-          return PROMPT_REFINE_PHYSICS
-      if subject == "SINH":
-          return PROMPT_REFINE_BIOLOGY
-      if subject == "TOÁN":
-          return PROMPT_REFINE_MATH
-
-      # Default: Hóa
-      return PROMPT_REFINE_CHEMISTRY
-
-
-    def _render_from_blueprint(self, blueprint: Dict, exp_data: Dict) -> Tuple[str, str, str]:
-        """
-        BƯỚC 2: Render HTML/CSS/JS từ Blueprint
-        """
-        prompt = f"""Bạn là Senior Frontend Developer chuyên về data visualization.
-
-**BLUEPRINT ĐÃ ĐƯỢC APPROVED:**
-```json
-{json.dumps(blueprint, indent=2, ensure_ascii=False)}
-```
-
-**THÔNG TIN BỔ SUNG:**
-Bài học: {exp_data.get('Bài học')}
-Mô tả: {exp_data.get('Mô tả thí nghiệm thực hiện', '')[:800]}
-
-**NHIỆM VỤ:**
-Implement blueprint thành code HTML/CSS/JS production-ready.
-
-**OUTPUT FORMAT:**
-```json
-{{
-  "html": "...",
-  "css": "...",
-  "js": "..."
-}}
-```
-
-**YÊU CẦU IMPLEMENTATION:**
-
-1. **HTML - UI Components:**
-   - Dựa trên blueprint.layout, tạo cấu trúc DOM
-   - Mỗi section phải có container riêng với id
-   - Dùng Tailwind: {self.design_tokens['spacing']['container']}
-   - Canvas phải có size chính xác từ blueprint
-   - Controls: buttons đẹp với icon (dùng Unicode: ▶️ ⏸ 🔄)
-   - Info panel: grid layout cho metrics
-   
-   VÍ DỤ STRUCTURE:
-   ```html
-   <div class="max-w-7xl mx-auto space-y-8">
-     <div class="bg-gradient-to-br from-blue-50 to-indigo-50 p-8 rounded-2xl shadow-2xl">
-       <canvas id="mainCanvas" class="w-full rounded-xl shadow-inner"></canvas>
-     </div>
-     <div class="grid grid-cols-3 gap-4">
-       <button class="group relative px-8 py-4 bg-gradient-to-r from-green-500 to-emerald-500 
-                      hover:from-green-600 hover:to-emerald-600 text-white font-bold rounded-xl 
-                      shadow-lg hover:shadow-xl transform hover:-translate-y-1 transition-all">
-         <span class="flex items-center gap-2">▶️ Bắt đầu</span>
-       </button>
-     </div>
-   </div>
-   ```
-
-2. **CSS - Modern Styling:**
-   - Gradient backgrounds cho depth
-   - Animations mượt mà (ease-in-out, cubic-bezier)
-   - Glow effects cho interactive elements
-   - Glassmorphism cho panels (backdrop-filter)
-   
-   VÍ DỤ:
-   ```css
-   @keyframes pulse-glow {{
-     0%, 100% {{ box-shadow: 0 0 20px rgba(59, 130, 246, 0.5); }}
-     50% {{ box-shadow: 0 0 40px rgba(59, 130, 246, 0.8); }}
-   }}
-   
-   .active-particle {{
-     animation: pulse-glow 2s ease-in-out infinite;
-   }}
-   
-   .glass-panel {{
-     background: rgba(255, 255, 255, 0.1);
-     backdrop-filter: blur(10px);
-     border: 1px solid rgba(255, 255, 255, 0.2);
-   }}
-   ```
-
-3. **JS - Robust Logic:**
-   ```javascript
-   // === CONFIGURATION ===
-   const CONFIG = {{
-     canvas: {{ width: 800, height: 600 }},
-     physics: {{ gravity: 0.5, friction: 0.98 }},
-     colors: {{ primary: '#3b82f6', accent: '#8b5cf6' }}
-   }};
-   
-   // === STATE MANAGEMENT ===
-   const state = {{
-     // Từ blueprint.state
-     running: false,
-     temperature: 25,
-     particles: [],
-     
-     // UI state
-     selectedTool: null,
-     hoveredElement: null
-   }};
-   
-   // === ENTITY CLASSES ===
-   class Particle {{
-     constructor(x, y, vx, vy) {{
-       this.x = x; this.y = y;
-       this.vx = vx; this.vy = vy;
-       this.radius = 5;
-       this.color = CONFIG.colors.primary;
-     }}
-     
-     update(dt) {{
-       this.vy += CONFIG.physics.gravity * dt;
-       this.x += this.vx * dt;
-       this.y += this.vy * dt;
-       
-       // Collision với walls
-       if (this.x < this.radius || this.x > CONFIG.canvas.width - this.radius) {{
-         this.vx *= -CONFIG.physics.friction;
-       }}
-       if (this.y > CONFIG.canvas.height - this.radius) {{
-         this.y = CONFIG.canvas.height - this.radius;
-         this.vy *= -CONFIG.physics.friction;
-       }}
-     }}
-     
-     draw(ctx) {{
-       ctx.fillStyle = this.color;
-       ctx.beginPath();
-       ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
-       ctx.fill();
-     }}
-   }}
-   
-   // === RENDERING ===
-   function render(ctx) {{
-     // Clear với gradient
-     const gradient = ctx.createLinearGradient(0, 0, 0, CONFIG.canvas.height);
-     gradient.addColorStop(0, '#1e3a8a');
-     gradient.addColorStop(1, '#3b82f6');
-     ctx.fillStyle = gradient;
-     ctx.fillRect(0, 0, CONFIG.canvas.width, CONFIG.canvas.height);
-     
-     // Draw entities
-     state.particles.forEach(p => p.draw(ctx));
-     
-     // Draw UI overlays
-     drawMetrics(ctx);
-   }}
-   
-   function drawMetrics(ctx) {{
-     ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-     ctx.font = 'bold 16px sans-serif';
-     ctx.fillText(`Particles: ${{state.particles.length}}`, 10, 30);
-     ctx.fillText(`Temp: ${{state.temperature}}°C`, 10, 55);
-   }}
-   
-   // === PHYSICS UPDATE ===
-   let lastTime = 0;
-   function update(currentTime) {{
-     const dt = (currentTime - lastTime) / 1000;
-     lastTime = currentTime;
-     
-     if (state.running) {{
-       state.particles.forEach(p => p.update(dt));
-     }}
-     
-     render(ctx);
-     requestAnimationFrame(update);
-   }}
-   
-   // === EVENT HANDLERS ===
-   function handleStart() {{
-     state.running = true;
-     this.textContent = '⏸ Tạm dừng';
-     this.classList.replace('from-green-500', 'from-yellow-500');
-   }}
-   
-   function handleReset() {{
-     state.running = false;
-     state.particles = [];
-     initParticles();
-   }}
-   
-   // === INITIALIZATION ===
-   function initParticles() {{
-     for (let i = 0; i < 20; i++) {{
-       state.particles.push(new Particle(
-         Math.random() * CONFIG.canvas.width,
-         Math.random() * CONFIG.canvas.height,
-         (Math.random() - 0.5) * 200,
-         (Math.random() - 0.5) * 200
-       ));
-     }}
-   }}
-   
-   function init() {{
-     const canvas = document.getElementById('mainCanvas');
-     const ctx = canvas.getContext('2d');
-     
-     canvas.width = CONFIG.canvas.width;
-     canvas.height = CONFIG.canvas.height;
-     
-     // Setup events
-     document.getElementById('btnStart').onclick = handleStart;
-     document.getElementById('btnReset').onclick = handleReset;
-     
-     initParticles();
-     requestAnimationFrame(update);
-   }}
-   
-   init();
-   ```
-
-**CHECKLIST:**
-- [ ] HTML không có thẻ html/head/body
-- [ ] Tailwind classes đầy đủ, không inline styles
-- [ ] CSS chỉ có animations/custom effects
-- [ ] JS có class cho entities
-- [ ] State management rõ ràng
-- [ ] RequestAnimationFrame với delta time
-- [ ] Event handlers clean
-- [ ] Không dùng localStorage
-
-Chỉ trả về JSON với 3 keys: html, css, js."""
-
+            prompt = prompt_template.format(
+                LESSON=exp_data.get("Bài học", ""),
+                CHAPTER=exp_data.get("Chương", ""),
+                DESCRIPTION=exp_data.get("Mô tả thí nghiệm thực hiện", "")[:1000],
+                HTML=html_escaped,
+                CSS=css_escaped,
+                JS=js_escaped
+            )
+        except KeyError as e:
+            logger.error(f"❌ Prompt format error: {e}")
+            logger.warning("⚠️ Skipping refinement due to format error")
+            return html, css, js
+        
+        logger.info(f"🧠 AI refining for {subject}...")
+        
         response = self.client.send_data_to_AI(
             prompt,
-            max_output_tokens=30000,
-            temperature=0.1
+            temperature=0.15,
+            max_output_tokens=25000
         )
         
         if not response:
-            logger.error("❌ Không render được từ blueprint")
-            return "", "", ""
+            logger.warning("⚠️ Refine failed, using original")
+            return html, css, js
         
-        return self._parse_response(response)
+        # Parse
+        try:
+            refined_html, refined_css, refined_js = self._parse_response(response)
+            
+            # Validate
+            from process.validate import CodeValidator
+            
+            if not CodeValidator.validate_html(refined_html)[0]:
+                raise ValueError("Refined HTML invalid")
+            
+            logger.info("✅ Refinement successful")
+            return refined_html, refined_css, refined_js
+            
+        except Exception as e:
+            logger.error(f"❌ Refine parse error: {e}")
+            return html, css, js
 
     def _parse_response(self, response: str) -> Tuple[str, str, str]:
-        """Parse JSON response"""
+        """Parse JSON response từ AI"""
         try:
-            json_match = re.search(r'```json\s*(\{.*?\})\s*```', response, re.DOTALL)
+            # Tìm JSON block
+            json_match = re.search(r'```json\s*(\{.*?\})\s*```', response, re.DOTALL | re.IGNORECASE)
             if json_match:
                 data = json.loads(json_match.group(1))
             else:
+                # Fallback: tìm {} object
                 start = response.find('{')
                 end = response.rfind('}')
-                data = json.loads(response[start:end+1])
+                if start != -1 and end != -1:
+                    data = json.loads(response[start:end+1])
+                else:
+                    raise ValueError("No JSON found in response")
             
             html = self._clean_code(data.get('html', ''), 'html')
             css = self._clean_code(data.get('css', ''), 'css')
             js = self._clean_code(data.get('js', ''), 'js')
             
             return html, css, js
+            
         except Exception as e:
             logger.error(f"❌ Parse error: {e}")
             return "", "", ""
 
     def _clean_code(self, code: str, lang: str) -> str:
         """Clean code blocks"""
+        if not code:
+            return ""
+        
+        # Remove markdown code blocks
         pattern = rf"```{lang}?\s*\n?(.*?)\n?```"
-        match = re.search(pattern, code, re.DOTALL)
-        return match.group(1).strip() if match else code.strip()
+        match = re.search(pattern, code, re.DOTALL | re.IGNORECASE)
+        if match:
+            code = match.group(1)
+        
+        return code.strip()
+
+    def _fix_html_structure(self, html: str) -> str:
+        """Auto-fix HTML structure issues"""
+        # Đảm bảo có root container
+        if not html.strip().startswith('<div'):
+            html = f'<div class="w-full">\n{html}\n</div>'
+        
+        return html
 
     def _auto_fix_js(self, js_code: str) -> str:
         """Auto-fix common JS issues"""
-        js_code = re.sub(r'localStorage\.[a-zA-Z]+\([^)]*\)', '/* removed */', js_code)
-        js_code = re.sub(r'sessionStorage\.[a-zA-Z]+\([^)]*\)', '/* removed */', js_code)
+        # Remove localStorage/sessionStorage
+        js_code = re.sub(
+            r'(localStorage|sessionStorage)\.[a-zA-Z]+\([^)]*\)',
+            '/* removed storage call */',
+            js_code
+        )
         
-        if 'init()' not in js_code and 'function init(' in js_code:
-            js_code += '\n\ninit();'
+        # Ensure init() is called
+        if 'function init(' in js_code or 'const init = ' in js_code:
+            if not re.search(r'\ninit\(\);?\s*$', js_code):
+                js_code += '\n\n// Auto-added init call\ninit();'
         
         return js_code
 
+    def _inject_into_template(
+        self,
+        template_path: str,
+        exp_data: Dict,
+        html: str,
+        css: str,
+        js: str
+    ) -> str:
+        """Inject code vào template"""
+        
+        with open(template_path, 'r', encoding='utf-8') as f:
+            template = f.read()
+        
+        # Replace placeholders
+        output = template \
+            .replace("{{LESSON_TITLE}}", str(exp_data.get("Bài học", "Thí nghiệm"))) \
+            .replace("{{CHAPTER_TITLE}}", str(exp_data.get("Chương", ""))) \
+            .replace("{{HTML_CONTENT}}", html) \
+            .replace("{{CSS_CONTENT}}", css) \
+            .replace("{{JS_CONTENT}}", js)
+        
+        return output
+
     def process_experiment(self, exp_data: Dict, template_path: str, prompt_path: str):
-        """Wrapper for compatibility"""
+        """Wrapper method để tương thích với code cũ"""
         return self.generate_complete_experiment(exp_data, template_path, prompt_path)

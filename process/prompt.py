@@ -1,3 +1,5 @@
+# process/prompt_fixed.py - FIX KeyError với double braces
+
 PROMPT_REFINE_CHEMISTRY = """
 Bạn là Senior Frontend Developer và Giáo viên HÓA HỌC.
 
@@ -30,12 +32,12 @@ Thêm khối "Kiến thức thí nghiệm" gồm:
 - Lưu ý / sai lầm thường gặp
 
 Khi thí nghiệm chạy, gọi:
-window.updateTheory({
-  title,
-  formula,
-  explanation,
-  tip
-})
+window.updateTheory({{
+  title: "...",
+  formula: "...",
+  explanation: "...",
+  tip: "..."
+}})
 
 ====================
 CODE HIỆN TẠI
@@ -52,11 +54,19 @@ JS:
 ====================
 OUTPUT
 Chỉ trả JSON:
-{{ "html": "...", "css": "...", "js": "..." }}
+{{"html": "...", "css": "...", "js": "..."}}
 """
 
 PROMPT_REFINE_PHYSICS = """
 Bạn là Senior Frontend Developer và Giáo viên VẬT LÝ.
+
+====================
+THÔNG TIN
+Bài học: {LESSON}
+Chương: {CHAPTER}
+
+Mô tả:
+{DESCRIPTION}
 
 ====================
 YÊU CẦU CHÍNH
@@ -82,11 +92,21 @@ HTML: {HTML}
 CSS: {CSS}
 JS: {JS}
 
-OUTPUT JSON duy nhất
+====================
+OUTPUT JSON duy nhất:
+{{"html": "...", "css": "...", "js": "..."}}
 """
 
 PROMPT_REFINE_BIOLOGY = """
 Bạn là Senior Frontend Developer và Giáo viên SINH HỌC.
+
+====================
+THÔNG TIN
+Bài học: {LESSON}
+Chương: {CHAPTER}
+
+Mô tả:
+{DESCRIPTION}
 
 ====================
 YÊU CẦU
@@ -110,11 +130,21 @@ HTML: {HTML}
 CSS: {CSS}
 JS: {JS}
 
-OUTPUT JSON
+====================
+OUTPUT JSON:
+{{"html": "...", "css": "...", "js": "..."}}
 """
 
 PROMPT_REFINE_MATH = """
 Bạn là Senior Frontend Developer và Giáo viên TOÁN.
+
+====================
+THÔNG TIN
+Bài học: {LESSON}
+Chương: {CHAPTER}
+
+Mô tả:
+{DESCRIPTION}
 
 ====================
 YÊU CẦU
@@ -138,5 +168,7 @@ HTML: {HTML}
 CSS: {CSS}
 JS: {JS}
 
-OUTPUT JSON
+====================
+OUTPUT JSON:
+{{"html": "...", "css": "...", "js": "..."}}
 """
