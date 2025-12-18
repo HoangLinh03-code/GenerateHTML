@@ -113,7 +113,7 @@ YÊU CẦU
 
 - Theme: Green / Emerald / Nature
 - Animation: growth, division, diffusion
-- Trực quan – dễ hiểu cho học sinh
+- Trực quan - dễ hiểu cho học sinh
 
 KIẾN THỨC:
 - Cấu trúc sinh học

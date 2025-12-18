@@ -6,22 +6,12 @@ import re
 import logging
 from typing import Dict, Tuple
 from api.callAPI import VertexClient
-# Import prompts - sẽ dùng version đã fix
-try:
-    from process.prompt_fixed import (
-        PROMPT_REFINE_CHEMISTRY,
-        PROMPT_REFINE_PHYSICS,
-        PROMPT_REFINE_BIOLOGY,
-        PROMPT_REFINE_MATH
-    )
-except ImportError:
-    # Fallback nếu chưa tạo file mới
-    from process.prompt import (
-        PROMPT_REFINE_CHEMISTRY,
-        PROMPT_REFINE_PHYSICS,
-        PROMPT_REFINE_BIOLOGY,
-        PROMPT_REFINE_MATH
-    )
+from process.prompt import (
+    PROMPT_REFINE_CHEMISTRY,
+    PROMPT_REFINE_PHYSICS,
+    PROMPT_REFINE_BIOLOGY,
+    PROMPT_REFINE_MATH
+)
 
 logger = logging.getLogger(__name__)
 
