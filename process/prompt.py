@@ -10,6 +10,8 @@ Chương: {CHAPTER}
 
 Mô tả thí nghiệm:
 {DESCRIPTION}
+Yêu cầu bổ sung từ người dùng (nếu có):
+{PROMPT_DES}
 
 ====================
 NHIỆM VỤ
@@ -67,6 +69,8 @@ Chương: {CHAPTER}
 
 Mô tả:
 {DESCRIPTION}
+Yêu cầu bổ sung từ người dùng (nếu có):
+{PROMPT_DES}
 
 ====================
 YÊU CẦU CHÍNH
@@ -107,6 +111,8 @@ Chương: {CHAPTER}
 
 Mô tả:
 {DESCRIPTION}
+Yêu cầu bổ sung từ người dùng (nếu có):
+{PROMPT_DES}
 
 ====================
 YÊU CẦU
@@ -145,6 +151,8 @@ Chương: {CHAPTER}
 
 Mô tả:
 {DESCRIPTION}
+Yêu cầu bổ sung từ người dùng (nếu có):
+{PROMPT_DES}
 
 ====================
 YÊU CẦU

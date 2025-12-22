@@ -25,7 +25,7 @@ class EnhancedExperimentGenerator:
         
     def generate_complete_experiment(self, exp_data: Dict, template_path: str, prompt_path: str):
         """
-        Sinh HTML với blueprint approach
+        Sinh HTML với blueprint approach  
         """
         lesson = exp_data.get('Bài học', 'Unknown')
         subject = exp_data.get('Môn học', 'Unknown').upper()
@@ -43,7 +43,7 @@ class EnhancedExperimentGenerator:
         response = self.client.send_data_to_AI(
             full_prompt,
             max_output_tokens=30000,
-            temperature=0.2
+            temperature=0.1
         )
         
         if not response:
@@ -99,7 +99,8 @@ class EnhancedExperimentGenerator:
         subject = exp_data.get('Môn học', '').upper()
         lesson = exp_data.get('Bài học', '')
         chapter = exp_data.get('Chương', '')
-        description = exp_data.get('Mô tả thí nghiệm thực hiện', '')[:1500]
+        description = exp_data.get('Mô tả thí nghiệm thực hiện', '')[:5000]
+        prompt_des = exp_data.get('Prompt gợi ý chỉnh sửa', '')[:5000]
         content = exp_data.get('Nội dung trong bài học', '')[:500]
         
         # Chọn theme và icons theo môn học
@@ -121,6 +122,8 @@ THÔNG TIN BÀI HỌC
 
 **Mô tả thí nghiệm chi tiết:**
 {description}
+**Yêu cầu bổ sung từ người dùng (nếu có):**
+{prompt_des}
 
 ===========================================
 YÊU CẦU CỤ THỂ CHO BÀI NÀY
@@ -246,9 +249,13 @@ Hãy tạo một bài học tương tác chất lượng cao, đẹp mắt và h
         """Quyết định có nên refine không"""
         # Refine nếu mô tả phức tạp hoặc môn lý/hóa
         description = exp_data.get('Mô tả thí nghiệm thực hiện', '')
+        prompt_des = exp_data.get('Prompt gợi ý chỉnh sửa', '')
         subject = exp_data.get('Môn học', '').upper()
         
-        return len(description) > 500 or subject in ['HÓA', 'LÝ']
+        if len(description) > 2000 or len(prompt_des) > 1000:
+            return True
+        
+        return subject in ['LÝ', 'HÓA']
 
     def _ai_refine_output(self, html: str, css: str, js: str, exp_data: Dict) -> Tuple[str, str, str]:
         """AI post-processing để enhance output"""
@@ -274,7 +281,8 @@ Hãy tạo một bài học tương tác chất lượng cao, đẹp mắt và h
             prompt = prompt_template.format(
                 LESSON=exp_data.get("Bài học", ""),
                 CHAPTER=exp_data.get("Chương", ""),
-                DESCRIPTION=exp_data.get("Mô tả thí nghiệm thực hiện", "")[:1000],
+                DESCRIPTION=exp_data.get("Mô tả thí nghiệm thực hiện", "")[:5000],
+                PROMPT_DES=exp_data.get("Prompt gợi ý chỉnh sửa", "")[:5000],
                 HTML=html_escaped,
                 CSS=css_escaped,
                 JS=js_escaped
@@ -289,7 +297,7 @@ Hãy tạo một bài học tương tác chất lượng cao, đẹp mắt và h
         response = self.client.send_data_to_AI(
             prompt,
             temperature=0.15,
-            max_output_tokens=25000
+            max_output_tokens=30000
         )
         
         if not response:
